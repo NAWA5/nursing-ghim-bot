@@ -1,4 +1,5 @@
 import os
+import logging
 from telethon.sync import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest, GetRepliesRequest
 from google.oauth2.service_account import Credentials
@@ -9,13 +10,30 @@ import pytz
 
 load_dotenv()
 
-api_id = int(os.getenv("API_ID"))
-api_hash = os.getenv("API_HASH")
-bot_token = os.getenv("BOT_TOKEN")
-channel_username = os.getenv("CHANNEL_USERNAME")
-sheet_url = os.getenv("SHEET_URL")
 
-client = TelegramClient('bot', api_id, api_hash).start(bot_token=bot_token)
+def validate_config():
+    """Ensure all required environment variables exist."""
+    required = [
+        "API_ID",
+        "API_HASH",
+        "BOT_TOKEN",
+        "CHANNEL_USERNAME",
+        "SHEET_URL",
+        "GOOGLE_CREDENTIALS",
+    ]
+    missing = [var for var in required if not os.getenv(var)]
+    if missing:
+        logging.error("Missing required environment variables: %s", ", ".join(missing))
+        raise SystemExit(1)
+    config = {var: os.getenv(var) for var in required}
+    config["API_ID"] = int(config["API_ID"])
+    return config
+
+
+def create_client(config):
+    return TelegramClient("bot", config["API_ID"], config["API_HASH"]).start(
+        bot_token=config["BOT_TOKEN"]
+    )
 
 def is_question(text):
     if not text:
@@ -37,16 +55,18 @@ def is_question(text):
     ]
     return any(keyword.lower() in text.lower() for keyword in keywords)
 
-def write_to_sheet(rows):
+def write_to_sheet(rows, sheet_url):
     creds_path = os.getenv("GOOGLE_CREDENTIALS")
-    creds = Credentials.from_service_account_file(creds_path, scopes=["https://www.googleapis.com/auth/spreadsheets"])
+    creds = Credentials.from_service_account_file(
+        creds_path, scopes=["https://www.googleapis.com/auth/spreadsheets"]
+    )
     gc = gspread.authorize(creds)
     sh = gc.open_by_url(sheet_url)
     worksheet = sh.sheet1
     for row in rows:
         worksheet.append_row(row, value_input_option="RAW")
 
-async def collect_questions():
+async def collect_questions(client, channel_username, sheet_url):
     await client.connect()
     entity = await client.get_entity(channel_username)
 
@@ -98,8 +118,18 @@ async def collect_questions():
         offset_id = history.messages[-1].id
 
     if questions:
-        write_to_sheet(questions)
+        write_to_sheet(questions, sheet_url)
     await client.disconnect()
 
-with client:
-    client.loop.run_until_complete(collect_questions())
+
+def main():
+    config = validate_config()
+    client = create_client(config)
+    with client:
+        client.loop.run_until_complete(
+            collect_questions(client, config["CHANNEL_USERNAME"], config["SHEET_URL"])
+        )
+
+
+if __name__ == "__main__":
+    main()
