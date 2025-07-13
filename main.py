@@ -7,6 +7,9 @@ import gspread
 from dotenv import load_dotenv
 import datetime
 import pytz
+import io
+from PIL import Image
+import pytesseract
 
 load_dotenv()
 
@@ -55,6 +58,27 @@ def is_question(text):
     ]
     return any(keyword.lower() in text.lower() for keyword in keywords)
 
+
+async def ocr_if_image(message):
+    """Extract text from an image message using Tesseract."""
+    media = None
+    if getattr(message, "photo", None):
+        media = message.photo
+    elif getattr(message, "document", None) and getattr(message.document, "mime_type", "").startswith("image/"):
+        media = message.document
+    if not media:
+        return None
+    try:
+        data = await message.download_media(bytes)
+        if not data:
+            return None
+        img = Image.open(io.BytesIO(data))
+        text = pytesseract.image_to_string(img)
+        return text.strip()
+    except Exception as exc:
+        logging.exception("OCR failed for message %s: %s", message.id, exc)
+        return None
+
 def write_to_sheet(rows, sheet_url):
     creds_path = os.getenv("GOOGLE_CREDENTIALS")
     creds = Credentials.from_service_account_file(
@@ -75,16 +99,18 @@ async def collect_questions(client, channel_username, sheet_url):
     today = datetime.date.today()
 
     while True:
-        history = await client(GetHistoryRequest(
-            peer=entity,
-            offset_id=offset_id,
-            offset_date=None,
-            add_offset=0,
-            limit=100,
-            max_id=0,
-            min_id=0,
-            hash=0
-        ))
+        history = await client(
+            GetHistoryRequest(
+                peer=entity,
+                offset_id=offset_id,
+                offset_date=None,
+                add_offset=0,
+                limit=100,
+                max_id=0,
+                min_id=0,
+                hash=0,
+            )
+        )
         if not history.messages:
             break
         for msg in history.messages:
@@ -93,19 +119,46 @@ async def collect_questions(client, channel_username, sheet_url):
                 continue
             if post_date > today:
                 continue
-            replies = await client(GetRepliesRequest(
-                peer=entity,
-                msg_id=msg.id,
-                offset_id=0,
-                offset_date=None,
-                add_offset=0,
-                limit=100,
-                max_id=0,
-                min_id=0,
-                hash=0
-            ))
+
+            # Check the main message for text or images
+            for text_candidate in [msg.message] if msg.message else []:
+                if is_question(text_candidate):
+                    questions.append([
+                        str(datetime.datetime.now(pytz.utc)),
+                        str(post_date),
+                        str(msg.id),
+                        str(getattr(msg, "sender_id", "")),
+                        text_candidate,
+                        "No",
+                        "",
+                    ])
+            ocr_text = await ocr_if_image(msg)
+            if ocr_text and is_question(ocr_text):
+                questions.append([
+                    str(datetime.datetime.now(pytz.utc)),
+                    str(post_date),
+                    str(msg.id),
+                    str(getattr(msg, "sender_id", "")),
+                    ocr_text,
+                    "No",
+                    "",
+                ])
+
+            replies = await client(
+                GetRepliesRequest(
+                    peer=entity,
+                    msg_id=msg.id,
+                    offset_id=0,
+                    offset_date=None,
+                    add_offset=0,
+                    limit=100,
+                    max_id=0,
+                    min_id=0,
+                    hash=0,
+                )
+            )
             for reply in replies.messages:
-                if is_question(reply.message):
+                if reply.message and is_question(reply.message):
                     questions.append([
                         str(datetime.datetime.now(pytz.utc)),
                         str(post_date),
@@ -113,7 +166,18 @@ async def collect_questions(client, channel_username, sheet_url):
                         str(reply.sender_id),
                         reply.message,
                         "No",
-                        ""
+                        "",
+                    ])
+                ocr_r = await ocr_if_image(reply)
+                if ocr_r and is_question(ocr_r):
+                    questions.append([
+                        str(datetime.datetime.now(pytz.utc)),
+                        str(post_date),
+                        str(msg.id),
+                        str(reply.sender_id),
+                        ocr_r,
+                        "No",
+                        "",
                     ])
         offset_id = history.messages[-1].id
 
