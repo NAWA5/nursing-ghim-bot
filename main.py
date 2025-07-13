@@ -20,7 +20,21 @@ client = TelegramClient('bot', api_id, api_hash).start(bot_token=bot_token)
 def is_question(text):
     if not text:
         return False
-    keywords = ["؟", "?", "جاني سؤال", "جاءني", "Question", "اختر", "ما هو", "which", "what", "A.", "B.", "C.", "D."]
+    keywords = [
+        "؟",
+        "?",
+        "جاني سؤال",
+        "جاءني",
+        "Question",
+        "اختر",
+        "ما هو",
+        "which",
+        "what",
+        "A.",
+        "B.",
+        "C.",
+        "D."
+    ]
     return any(keyword.lower() in text.lower() for keyword in keywords)
 
 def write_to_sheet(rows):
