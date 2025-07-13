@@ -44,8 +44,8 @@ def load_existing_signatures(sheet_url):
         return set()
     signatures = set()
     for row in values:
-        if len(row) >= 8 and row[7]:
-            signatures.add(row[7])
+        if len(row) >= 9 and row[8]:
+            signatures.add(row[8])
     return signatures
 
 
@@ -164,6 +164,30 @@ def register_command_handlers(client, channel_username, sheet_url):
             state = "enabled" if summaries_enabled else "disabled"
             await event.respond(f"Summaries are currently {state}.")
 
+CATEGORY_KEYWORDS = {
+    "pediatrics": ["pediatric", "child", "infant", "neonate", "peds"],
+    "pharmacology": [
+        "drug",
+        "dose",
+        "medication",
+        "pharmac",
+        "side effect",
+        "contraindication",
+    ],
+    "cardiology": ["heart", "cardiac", "ecg", "arrhythmia", "cardio"],
+    "obstetrics": ["pregnancy", "pregnant", "gestation", "labor", "obstetric"],
+}
+
+
+def categorize_question(text: str) -> list[str]:
+    """Return a list of category tags that match the text."""
+    categories = []
+    lower = text.lower()
+    for category, keywords in CATEGORY_KEYWORDS.items():
+        if any(keyword in lower for keyword in keywords):
+            categories.append(category)
+    return categories
+
 def is_question(text):
     if not text:
         return False
@@ -259,6 +283,7 @@ async def collect_questions(client, channel_username, sheet_url):
                         text_candidate,
                         "No",
                         "",
+                        ",".join(categorize_question(text_candidate)),
                     ])
             ocr_text = await ocr_if_image(msg)
             if ocr_text and is_question(ocr_text):
@@ -270,6 +295,7 @@ async def collect_questions(client, channel_username, sheet_url):
                     ocr_text,
                     "No",
                     "",
+                    ",".join(categorize_question(ocr_text)),
                 ])
 
             replies = await client(
@@ -295,6 +321,7 @@ async def collect_questions(client, channel_username, sheet_url):
                         reply.message,
                         "No",
                         "",
+                        ",".join(categorize_question(reply.message)),
                     ])
                 ocr_r = await ocr_if_image(reply)
                 if ocr_r and is_question(ocr_r):
@@ -306,6 +333,7 @@ async def collect_questions(client, channel_username, sheet_url):
                         ocr_r,
                         "No",
                         "",
+                        ",".join(categorize_question(ocr_r)),
                     ])
         offset_id = history.messages[-1].id
 

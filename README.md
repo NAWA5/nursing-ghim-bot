@@ -2,6 +2,8 @@
 
 This bot collects questions from a Telegram channel and writes them to a Google Sheet.
 
+Each question is tagged with zero or more **categories** (e.g. `pediatrics`, `pharmacology`) based on keywords. These tags are stored in a new column in the sheet.
+
 ## Environment Variables
 Create a `.env` file containing the following keys:
 
