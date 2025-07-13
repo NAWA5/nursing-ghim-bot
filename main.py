@@ -10,8 +10,51 @@ import pytz
 import io
 from PIL import Image
 import pytesseract
+import hashlib
+import re
 
 load_dotenv()
+
+
+def question_signature(text: str) -> str:
+    """Return a normalized hash for the given question text."""
+    normalized = re.sub(r"\W+", "", text.lower())
+    return hashlib.md5(normalized.encode("utf-8")).hexdigest()
+
+
+def load_existing_signatures(sheet_url):
+    """Return a set of signatures already stored in the sheet."""
+    creds_path = os.getenv("GOOGLE_CREDENTIALS")
+    creds = Credentials.from_service_account_file(
+        creds_path, scopes=["https://www.googleapis.com/auth/spreadsheets"]
+    )
+    gc = gspread.authorize(creds)
+    sh = gc.open_by_url(sheet_url)
+    worksheet = sh.sheet1
+    try:
+        values = worksheet.get_all_values()
+    except Exception as exc:  # pragma: no cover - network issues
+        logging.exception("Failed to fetch existing rows: %s", exc)
+        return set()
+    signatures = set()
+    for row in values:
+        if len(row) >= 8 and row[7]:
+            signatures.add(row[7])
+    return signatures
+
+
+def dedupe_rows(rows, existing_signatures):
+    """Remove rows with duplicate questions and append their signature."""
+    deduped = []
+    seen = set()
+    for row in rows:
+        sig = question_signature(row[4])
+        if sig in existing_signatures or sig in seen:
+            continue
+        seen.add(sig)
+        row.append(sig)
+        deduped.append(row)
+    return deduped
 
 
 def validate_config():
@@ -93,6 +136,8 @@ def write_to_sheet(rows, sheet_url):
 async def collect_questions(client, channel_username, sheet_url):
     await client.connect()
     entity = await client.get_entity(channel_username)
+
+    existing_signatures = load_existing_signatures(sheet_url)
 
     offset_id = 0
     questions = []
@@ -182,7 +227,9 @@ async def collect_questions(client, channel_username, sheet_url):
         offset_id = history.messages[-1].id
 
     if questions:
-        write_to_sheet(questions, sheet_url)
+        rows_to_write = dedupe_rows(questions, existing_signatures)
+        if rows_to_write:
+            write_to_sheet(rows_to_write, sheet_url)
     await client.disconnect()
 
 
