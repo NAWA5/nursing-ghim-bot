@@ -38,7 +38,8 @@ def is_question(text):
     return any(keyword.lower() in text.lower() for keyword in keywords)
 
 def write_to_sheet(rows):
-    creds = Credentials.from_service_account_file("credentials.json", scopes=["https://www.googleapis.com/auth/spreadsheets"])
+    creds_path = os.getenv("GOOGLE_CREDENTIALS")
+    creds = Credentials.from_service_account_file(creds_path, scopes=["https://www.googleapis.com/auth/spreadsheets"])
     gc = gspread.authorize(creds)
     sh = gc.open_by_url(sheet_url)
     worksheet = sh.sheet1
