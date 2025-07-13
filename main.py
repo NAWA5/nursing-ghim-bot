@@ -50,7 +50,6 @@ async def collect_questions():
     entity = await client.get_entity(channel_username)
 
     offset_id = 0
-    total_messages = []
     questions = []
     today = datetime.date.today()
 
