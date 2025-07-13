@@ -9,3 +9,5 @@ google-auth-httplib2
 pytesseract
 Pillow
 APScheduler
+fastapi
+uvicorn
